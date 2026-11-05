@@ -1,0 +1,3 @@
+# Built by site/make-zip.ps1
+site/*.zip
+store/*.zip

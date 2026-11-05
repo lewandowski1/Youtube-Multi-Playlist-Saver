@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- Pixel-aligned version of logo.svg for the 16px toolbar icon (checkmarks don't survive at this size). -->
+  <defs>
+    <linearGradient id="brand" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="16" y2="16">
+      <stop offset="0" stop-color="#FF4F64"/>
+      <stop offset="0.55" stop-color="#E03A9E"/>
+      <stop offset="1" stop-color="#7B3FF2"/>
+    </linearGradient>
+  </defs>
+  <rect width="16" height="16" rx="4" fill="url(#brand)"/>
+  <g fill="#fff">
+    <rect x="2" y="2" width="5" height="5" rx="1.2"/>
+    <rect x="9" y="2" width="5" height="5" rx="1.2"/>
+    <rect x="2" y="9" width="5" height="5" rx="1.2"/>
+  </g>
+  <rect x="9.5" y="9.5" width="4" height="4" rx="1" fill="#fff" fill-opacity="0.2" stroke="#fff" stroke-width="1"/>
+</svg>

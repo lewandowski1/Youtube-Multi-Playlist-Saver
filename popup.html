@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Playlist Multi-Save</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="hero">
+    <img src="icons/logo.svg" width="52" height="52" alt="">
+    <div>
+      <h1>Multi-Save</h1>
+      <p>Open a YouTube video and click <span class="chip">Save+</span> under it to save it to many playlists at once.</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>Grid</h2>
+    <div class="row">
+      <label for="thumbnails">Thumbnails</label>
+      <input id="thumbnails" type="checkbox" role="switch" class="switch" data-setting="thumbnails">
+    </div>
+    <div class="row">
+      <span id="columns-label">Columns</span>
+      <div class="seg" role="radiogroup" aria-labelledby="columns-label" data-setting="columns"></div>
+    </div>
+    <div class="row">
+      <span id="size-label">Card size</span>
+      <div class="seg" role="radiogroup" aria-labelledby="size-label" data-setting="size"></div>
+    </div>
+    <div class="row">
+      <label for="sort">Sort by</label>
+      <select id="sort"></select>
+    </div>
+  </section>
+
+  <section>
+    <h2>Closing</h2>
+    <div class="row">
+      <label for="confirmDiscard">Ask before discarding changes</label>
+      <input id="confirmDiscard" type="checkbox" role="switch" class="switch" data-setting="confirmDiscard" aria-describedby="confirmDiscard-hint">
+    </div>
+    <p class="hint" id="confirmDiscard-hint">When off, clicking outside the grid, the close button or Esc saves your selections. Cancel always discards.</p>
+  </section>
+
+  <section class="links">
+    <a id="donate" class="btn primary" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      Support the creator
+    </a>
+    <a id="website" class="btn" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm6.93 6h-2.95a15.65 15.65 0 0 0-1.38-3.56A8.03 8.03 0 0 1 18.93 8zM12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96zM4.26 14a8.2 8.2 0 0 1 0-4h3.38a16.5 16.5 0 0 0 0 4H4.26zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56A7.99 7.99 0 0 1 5.08 16zm2.95-8H5.08a7.99 7.99 0 0 1 4.33-3.56A15.65 15.65 0 0 0 8.03 8zM12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96zM14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4zm.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95a8.03 8.03 0 0 1-4.33 3.56zM16.36 14a16.5 16.5 0 0 0 0-4h3.38a8.2 8.2 0 0 1 0 4h-3.38z"/></svg>
+      Visit creator website
+    </a>
+  </section>
+
+  <footer>Version <span id="version"></span></footer>
+
+  <script src="settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

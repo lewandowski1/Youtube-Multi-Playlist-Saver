@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Playlist Multi-Save</title>
+<meta name="description" content="A Chrome extension that saves a YouTube video to several playlists at once.">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;700&display=swap">
+<style>
+  /* Same layout as the other extension pages: the first screen is the demo video, with a caption
+     line under it (name and description on the left, the download on the right). The install
+     tutorial follows below; build.ps1 in ../extensions-site fills it in between its markers. */
+  :root {
+    --bg: #eceef1;
+    --fg: #111317;
+    --muted: #5b616b;
+    --frame: rgba(17, 19, 23, 0.12);
+    --shadow: rgba(17, 19, 23, 0.35);
+    --brand: linear-gradient(135deg, #ff4f64 0%, #e03a9e 55%, #7b3ff2 100%); /* the extension's logo */
+    --on-accent: #ffffff;
+    --font-display: "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e0f11;
+      --fg: #ececee;
+      --muted: #9196a0;
+      --frame: rgba(255, 255, 255, 0.09);
+      --shadow: rgba(0, 0, 0, 0.6);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0e0f11;
+    --fg: #ececee;
+    --muted: #9196a0;
+    --frame: rgba(255, 255, 255, 0.09);
+    --shadow: rgba(0, 0, 0, 0.6);
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    --install-accent: #c42a86; /* the logo's pink, dark enough for white numbers */
+    --install-on-accent: #ffffff;
+    margin: 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--bg);
+    color: var(--fg);
+    font: 400 1rem/1.5 var(--font-display);
+  }
+
+  main {
+    display: grid;
+    align-content: center;
+    gap: clamp(20px, 3.5vh, 36px);
+    min-height: 100svh;
+    margin: 0 auto;
+    padding-block: 68px clamp(20px, 5vh, 56px);
+    /* Wide, but never so tall that the caption drops below the fold (16:9 video). */
+    width: min(1200px, 100%, calc((100svh - 19rem) * 1.78));
+    min-width: min(100%, 320px);
+  }
+
+  .stage {
+    position: relative;
+  }
+
+  .shot {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border-radius: 14px;
+    background: #0f0f0f;
+    box-shadow: 0 0 0 1px var(--frame), 0 28px 64px -28px var(--shadow);
+  }
+
+  /* Pause / play for the looping demo: in the top corner, clear of the demo's own buttons. With a
+     mouse it shows on hover or keyboard focus, and stays visible while the demo is paused. */
+  .pause {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .stage:hover .pause,
+  .pause:focus-visible,
+  .pause[data-state="paused"] {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .pause {
+      opacity: 0.85;
+    }
+  }
+
+  .pause:focus-visible {
+    outline: 3px solid #ffffff;
+    outline-offset: 2px;
+  }
+
+  .pause .play,
+  .pause[data-state="paused"] .bars {
+    display: none;
+  }
+
+  .pause[data-state="paused"] .play {
+    display: block;
+  }
+
+  .caption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px 40px;
+  }
+
+  .caption > div {
+    min-width: 0;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.9rem, 1.3rem + 2.2vw, 3rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  .multi {
+    background: var(--brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* The extension's icon, sized to the name. */
+  h1 .logo {
+    display: inline-block;
+    width: 1.05em;
+    height: 1.05em;
+    margin-right: 0.3em;
+    vertical-align: -0.17em;
+  }
+
+  .lede {
+    max-width: 44ch;
+    margin: 0.6rem 0 0;
+    color: var(--muted);
+    font-size: clamp(1rem, 0.95rem + 0.3vw, 1.15rem);
+    text-wrap: pretty;
+  }
+
+  .get {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.55rem;
+  }
+
+  .download {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    padding: 0.8em 1.7em;
+    border-radius: 999px;
+    background: var(--brand);
+    color: var(--on-accent);
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: filter 0.15s;
+  }
+
+  .download:hover {
+    filter: brightness(1.1);
+  }
+
+  .download:focus-visible {
+    outline: 3px solid var(--fg);
+    outline-offset: 3px;
+  }
+
+  .meta {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+
+  .meta a {
+    color: var(--fg);
+    text-underline-offset: 0.2em;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    /* No need to fit one screen on a phone: the tutorial simply follows. */
+    main {
+      min-height: 0;
+    }
+
+    .caption {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .get {
+      align-items: stretch;
+      text-align: center;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .download,
+    .pause {
+      transition: none;
+    }
+  }
+</style>
+<!-- install-style -->
+<style>
+  /* How to install: shared by the hub, every extension page and install.html. Pages can set
+     --install-accent and --install-on-accent to their own colour. */
+  .install {
+    width: min(1200px, 100%);
+    margin: 0 auto;
+    padding-block: clamp(40px, 8vh, 88px);
+  }
+
+  .install h2 {
+    margin: 0;
+    font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.5rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+  }
+
+  .install-lede {
+    max-width: 52ch;
+    margin: 0.6rem 0 0;
+    color: var(--muted);
+    font-size: clamp(1rem, 0.95rem + 0.3vw, 1.15rem);
+    text-wrap: pretty;
+  }
+
+  .install-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: clamp(28px, 5vw, 64px);
+    align-items: start;
+    margin-top: clamp(24px, 4vh, 40px);
+  }
+
+  .install-steps {
+    display: grid;
+    gap: 22px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: install-step;
+  }
+
+  .install-steps li {
+    display: grid;
+    grid-template-columns: 2.1rem minmax(0, 1fr);
+    column-gap: 14px;
+    counter-increment: install-step;
+  }
+
+  .install-steps li::before {
+    content: counter(install-step);
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 50%;
+    background: var(--install-accent, var(--fg));
+    color: var(--install-on-accent, var(--bg));
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .install h3 {
+    margin: 0.2rem 0 0.15rem;
+    font-size: 1.1rem;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+
+  .install-steps p,
+  .install-note p,
+  .install-more {
+    margin: 0;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .install-steps li > :not(h3) {
+    grid-column: 2;
+  }
+
+  .install b {
+    color: var(--fg);
+    font-weight: 700;
+  }
+
+  .install code {
+    padding: 0.08em 0.35em;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    color: var(--fg);
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    overflow-wrap: anywhere;
+  }
+
+  .install-side {
+    display: grid;
+    gap: 20px;
+  }
+
+  /* A sketch of Chrome's extensions page with the numbered spots from the steps. */
+  .install-figure {
+    margin: 0;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--fg) 4%, var(--bg));
+    box-shadow: 0 0 0 1px var(--frame);
+    overflow: hidden;
+    font-size: 0.92rem;
+  }
+
+  .fig-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--frame);
+  }
+
+  .fig-url {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+  }
+
+  .fig-page {
+    display: grid;
+    gap: 14px;
+    padding: 16px 16px 20px;
+  }
+
+  .fig-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+
+  .fig-title {
+    margin-right: auto;
+    font-weight: 700;
+    font-size: 1.05em;
+  }
+
+  .fig-dev {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+  }
+
+  .fig-switch {
+    position: relative;
+    width: 30px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--install-accent, var(--fg));
+  }
+
+  .fig-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--install-on-accent, var(--bg));
+  }
+
+  .fig-btn {
+    padding: 5px 11px;
+    border-radius: 7px;
+    box-shadow: inset 0 0 0 1px var(--frame);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .fig-btn.is-hot {
+    box-shadow: inset 0 0 0 2px var(--install-accent, var(--fg));
+    color: var(--fg);
+    font-weight: 700;
+  }
+
+  .fig-num {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 50%;
+    background: var(--install-accent, var(--fg));
+    color: var(--install-on-accent, var(--bg));
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .fig-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .fig-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--bg);
+    box-shadow: 0 0 0 1px var(--frame);
+  }
+
+  .fig-card i {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--fg) 14%, transparent);
+  }
+
+  .fig-card span {
+    flex: 1;
+    display: grid;
+    gap: 6px;
+  }
+
+  .fig-card span::before,
+  .fig-card span::after {
+    content: "";
+    height: 7px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
+  }
+
+  .fig-card span::after {
+    width: 60%;
+  }
+
+  .install-note {
+    padding: 18px 20px;
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 1px var(--frame);
+  }
+
+  .install-note h3 {
+    margin-top: 0;
+  }
+
+  .install-note p + p,
+  .install-note pre + p {
+    margin-top: 0.6rem;
+  }
+
+  .install-note pre {
+    margin: 0.7rem 0 0;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+    font-size: 0.95rem;
+    white-space: pre-wrap;
+  }
+
+  .install-note pre code {
+    padding: 0;
+    background: none;
+  }
+
+  .install-more {
+    margin-top: clamp(24px, 4vh, 36px);
+    font-size: 0.95rem;
+  }
+
+  /* An extension's own page only needs the MP3 Cutter note when it's that page. */
+  [data-extension]:not([data-extension="mp3-cutter"]) .for-mp3-cutter {
+    display: none;
+  }
+
+  @media (max-width: 860px) {
+    .install-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>
+<!-- /install-style -->
+<!-- shared-head -->
+<style>
+  /* Shared by every page: the light / dark switch in the top-right corner, the "All extensions"
+     back button in the top-left corner (every page but the hub) and the links at the bottom.
+     They're written once, in the hub's index.html, and build.ps1 copies them into the other
+     pages (the back button's and page links' markup is in each page, as their addresses differ). Until a visitor picks a theme, pages follow the system setting; the choice is
+     remembered for the whole site. */
+  .theme-toggle {
+    position: absolute;
+    top: max(14px, env(safe-area-inset-top, 0px));
+    right: max(14px, env(safe-area-inset-right, 0px));
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--frame);
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s, background-color 0.15s;
+  }
+
+  .theme-toggle:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+    color: var(--fg);
+  }
+
+  .theme-toggle:focus-visible {
+    outline: 3px solid var(--fg);
+    outline-offset: 2px;
+  }
+
+  .theme-toggle .theme-sun,
+  .theme-toggle[data-mode="dark"] .theme-moon {
+    display: none;
+  }
+
+  .theme-toggle[data-mode="dark"] .theme-sun {
+    display: block;
+  }
+
+
+  .back-link {
+    position: absolute;
+    top: max(14px, env(safe-area-inset-top, 0px));
+    left: max(14px, env(safe-area-inset-left, 0px));
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    height: 40px;
+    padding: 0 16px 0 11px;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--frame);
+    color: var(--muted);
+    font: 700 0.92rem/1 var(--font-display);
+    text-decoration: none;
+    transition: color 0.15s, background-color 0.15s;
+  }
+
+  .back-link:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+    color: var(--fg);
+  }
+
+  .back-link:focus-visible {
+    outline: 3px solid var(--fg);
+    outline-offset: 2px;
+  }
+
+  /* The links at the bottom of every page: the shared ones, then the page's own. */
+  .site-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px 20px;
+    margin: 0;
+    padding: 8px 0 18px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+
+  .site-links a {
+    color: inherit;
+    text-underline-offset: 0.2em;
+  }
+
+  .site-links a:hover {
+    color: var(--fg);
+  }
+
+  .site-links .site-donate {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45em;
+    padding: 0.5em 1.1em;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--frame);
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-decoration: none;
+  }
+
+  .site-links .site-donate:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+
+  .site-links .site-donate[hidden] {
+    display: none;
+  }
+
+  .footer-links {
+    margin: 0;
+    padding: 0 0 28px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+    text-align: center;
+  }
+
+  .footer-links a {
+    color: inherit;
+    text-underline-offset: 0.2em;
+  }
+
+  .footer-links a:hover {
+    color: var(--fg);
+  }
+
+  .site-donate svg {
+    color: #e5484d;
+  }
+
+  .site-links a:focus-visible {
+    outline: 3px solid var(--fg);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .theme-toggle,
+    .back-link {
+      transition: none;
+    }
+  }
+</style>
+<script>
+  // The visitor's saved choice goes on before the page is drawn, so it doesn't flash.
+  try {
+    const theme = localStorage.getItem('theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
+<!-- /shared-head -->
+</head>
+<body data-extension="multi-save">
+  <!-- theme-button -->
+  <button class="theme-toggle" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+    <svg class="theme-moon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 14.6A8.6 8.6 0 0 1 9.4 3.6a8.6 8.6 0 1 0 11 11Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    <svg class="theme-sun" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <script>
+    (() => {
+      const button = document.querySelector('.theme-toggle');
+      const system = matchMedia('(prefers-color-scheme: dark)');
+      const current = () => document.documentElement.dataset.theme || (system.matches ? 'dark' : 'light');
+      const sync = () => {
+        const dark = current() === 'dark';
+        const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+        button.dataset.mode = dark ? 'dark' : 'light';
+        button.setAttribute('aria-label', label);
+        button.title = label;
+      };
+      button.addEventListener('click', () => {
+        const next = current() === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        try {
+          localStorage.setItem('theme', next);
+        } catch {}
+        sync();
+      });
+      system.addEventListener('change', sync);
+      sync();
+    })();
+  </script>
+  <!-- /theme-button -->
+  <a class="back-link" href="../"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>All extensions</a>
+
+  <main>
+    <div class="stage">
+      <video class="shot" width="1920" height="1080" poster="poster.webp" autoplay muted loop playsinline preload="auto"
+             aria-label="Demo: on a YouTube video, Save+ opens a grid of all your playlists. Three are ticked, the grid is sorted by name, resized, switched to a compact list and searched, and Save adds the video to all three at once.">
+        <source src="demo.mp4" type="video/mp4">
+      </video>
+      <button class="pause" type="button" data-state="playing" aria-label="Pause the demo">
+        <svg class="bars" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h2.6v11H4zM9.4 2.5H12v11H9.4z" fill="currentColor"/></svg>
+        <svg class="play" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.4v11.2L13.4 8z" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <div class="caption">
+      <div>
+        <h1><img class="logo" src="icon.png" width="128" height="128" alt="">Playlist <span class="multi">Multi-Save</span></h1>
+        <p class="lede">Save a video to several playlists at once, from a wide grid you can search and sort.</p>
+      </div>
+      <div class="get">
+        <a class="download" href="playlist-multi-save.zip" download>
+          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+            <path d="M9 2.5v9M5 8l4 4 4-4M3 15.5h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Download
+        </a>
+        <p class="meta">Chrome · zip, 41 KB · <a href="#install">How to install</a> · <a href="https://github.com/lewandowski1/Youtube-Multi-Playlist-Saver">GitHub</a></p>
+      </div>
+    </div>
+  </main>
+
+  <!-- install -->
+  <section class="install" id="install" aria-labelledby="install-title">
+    <h2 id="install-title">How to install</h2>
+    <p class="install-lede">The download installs from a folder on your computer instead of the Chrome Web Store. It takes about a minute.</p>
+
+    <div class="install-body">
+      <ol class="install-steps">
+        <li>
+          <h3>Download and unzip</h3>
+          <p>Click <b>Download</b>, then unzip the file. On Windows, right-click it and choose <b>Extract All</b>. On a Mac, double-click it. Keep the folder somewhere it can stay, like Documents: Chrome loads the extension from it every time it starts.</p>
+        </li>
+        <li>
+          <h3>Open Chrome's extensions page</h3>
+          <p>Type <code>chrome://extensions</code> in the address bar and press Enter.</p>
+        </li>
+        <li>
+          <h3>Turn on Developer mode</h3>
+          <p>It's the switch in the top-right corner of the page.</p>
+        </li>
+        <li>
+          <h3>Click Load unpacked</h3>
+          <p>Choose the folder you unzipped, the one with <code>manifest.json</code> in it. The extension appears in the list.</p>
+        </li>
+        <li>
+          <h3>Pin it and refresh</h3>
+          <p>Click the puzzle-piece icon in Chrome's toolbar and pin the extension. Then refresh any open tabs of the sites it works on.</p>
+        </li>
+      </ol>
+
+      <div class="install-side">
+        <figure class="install-figure" aria-hidden="true">
+          <div class="fig-bar"><span class="fig-url">chrome://extensions</span><span class="fig-num">2</span></div>
+          <div class="fig-page">
+            <div class="fig-row"><span class="fig-title">Extensions</span><span class="fig-dev">Developer mode <span class="fig-switch"></span></span><span class="fig-num">3</span></div>
+            <div class="fig-row"><span class="fig-btn is-hot">Load unpacked</span><span class="fig-num">4</span><span class="fig-btn">Pack extension</span><span class="fig-btn">Update</span></div>
+            <div class="fig-cards"><div class="fig-card"><i></i><span></span></div><div class="fig-card"><i></i><span></span></div></div>
+          </div>
+        </figure>
+
+        <div class="install-note for-mp3-cutter">
+          <h3>YouTube MP3 Cutter: install its helper first</h3>
+          <p>The cutting and downloading is done by a small helper app on your computer. Install it before step 2.</p>
+          <p><b>Windows</b> (needs Python 3.10 or newer): open the unzipped folder, right-click an empty spot, choose <b>Open in Terminal</b>, and run:</p>
+          <pre><code>powershell -ExecutionPolicy Bypass -File host\install.ps1</code></pre>
+          <p><b>Mac</b> (needs <a href="https://brew.sh">Homebrew</a>): open Terminal, type <code>bash</code> and a space, drag <code>install.sh</code> from the <code>host</code> folder inside the unzipped folder into the window, and press Return.</p>
+          <p>In step 4, choose the <code>extension</code> folder inside the unzipped folder.</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="install-more"><b>Updating:</b> unzip the new version over the old folder, then click the reload icon on the extension's card in <code>chrome://extensions</code>. Edge, Brave and other Chromium browsers work the same way, from their own extensions page.</p>
+  </section>
+  <!-- /install -->
+
+  <footer>
+    <!-- site-links -->
+      <p class="site-links">
+        <a class="site-donate" href="https://ko-fi.com/nikma"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.3-9.1C1.4 8.2 3.4 4.5 7 4.5c2.1 0 3.6 1.1 5 3 1.4-1.9 2.9-3 5-3 3.6 0 5.6 3.7 4.3 6.9-1.8 4.5-9.3 9.1-9.3 9.1Z" fill="currentColor"/></svg>Donate</a>
+        <a href="https://x.com/xnikma">@xnikma on X</a>
+      </p>
+      <!-- /site-links -->
+    <p class="footer-links"><a href="../">All extensions</a> · <a href="../privacy.html">Privacy policy</a> · <a href="https://github.com/lewandowski1/Youtube-Multi-Playlist-Saver">Source on GitHub</a></p>
+  </footer>
+
+  <script>
+    // The demo loops on its own; the button pauses it. With reduced motion it starts paused.
+    (() => {
+      const video = document.querySelector('.stage video');
+      const button = document.querySelector('.stage .pause');
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        video.removeAttribute('autoplay');
+        video.pause();
+      }
+      const sync = () => {
+        button.dataset.state = video.paused ? 'paused' : 'playing';
+        button.setAttribute('aria-label', video.paused ? 'Play the demo' : 'Pause the demo');
+      };
+      button.addEventListener('click', () => (video.paused ? video.play() : video.pause()));
+      video.addEventListener('play', sync);
+      video.addEventListener('pause', sync);
+      sync();
+    })();
+  </script>
+</body>
+</html>
