@@ -3,6 +3,7 @@
 A Chrome extension that adds a **Save+** button next to Like / Share on YouTube watch pages. It opens a wide grid of all your playlists so you can tick several and save to all of them at once.
 
 - Tick or untick any number of playlists, then **Save** applies them all in one go
+- While it saves, a spinner on each playlist shows the one being added or removed ("Waiting…" for the next ones, "Added" / "Removed" when done), and a bar above the buttons fills as it goes. If some fail, they're marked and **Save** retries them
 - Each playlist shows its cover image (empty playlists get a placeholder), or switch thumbnails off for a compact list
 - Columns: **Auto** (fits the window) or a fixed **3–6**
 - Card size: **Small**, **Medium** or **Large**

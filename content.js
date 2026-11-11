@@ -331,6 +331,10 @@
     return svg;
   }
 
+  // A spinning ring in the text colour. Buttons show theirs while they're working (.is-busy),
+  // tiles while their playlist is being changed.
+  const spinner = () => h('span', { class: 'ytms-spinner', 'aria-hidden': 'true' });
+
   function toast(text) {
     let el = document.getElementById('ytms-toast');
     if (!el) {
@@ -463,7 +467,8 @@
       { class: 'ytms-field', 'aria-label': 'New playlist visibility' },
       ['PRIVATE', 'UNLISTED', 'PUBLIC'].map((v) => h('option', { value: v }, privacyLabel(v))),
     );
-    const createGo = h('button', { class: 'ytms-btn ytms-primary', type: 'button', onclick: () => doCreate() }, 'Create & save');
+    const createLabel = h('span', {}, 'Create & save');
+    const createGo = h('button', { class: 'ytms-btn ytms-primary', type: 'button', onclick: () => doCreate() }, spinner(), createLabel);
     const createError = h('div', { class: 'ytms-create-error', hidden: true });
     const createRow = h(
       'div',
@@ -475,13 +480,18 @@
 
     // body
     const grid = h('div', { class: 'ytms-grid', role: 'group', 'aria-label': 'Playlists' });
-    const message = h('div', { class: 'ytms-message' }, 'Loading your playlists…');
+    const message = h('div', { class: 'ytms-message is-loading' }, 'Loading your playlists…');
 
     // footer
     const counts = h('span', { class: 'ytms-counts' });
     const summary = h('span', { class: 'ytms-summary', 'aria-live': 'polite' });
-    const saveBtn = h('button', { class: 'ytms-btn ytms-primary', type: 'button', disabled: true, onclick: () => apply() }, 'Save');
+    const saveLabel = h('span', {}, 'Save');
+    const saveBtn = h('button', { class: 'ytms-btn ytms-primary', type: 'button', disabled: true, onclick: () => apply() }, spinner(), saveLabel);
+    const cancelBtn = h('button', { class: 'ytms-btn', type: 'button', onclick: () => close() }, 'Cancel');
     const newBtn = h('button', { class: 'ytms-btn', type: 'button', disabled: true, onclick: () => showCreate() }, icon(ICONS.plus), 'New playlist');
+    // While saving: a bar along the top of the footer that fills as each change is done.
+    const progressFill = h('span');
+    const progress = h('div', { class: 'ytms-progress', role: 'progressbar', 'aria-label': 'Saving', 'aria-valuemin': '0', hidden: true }, progressFill);
 
     const dialog = h(
       'div',
@@ -500,12 +510,13 @@
       h(
         'div',
         { class: 'ytms-foot' },
+        progress,
         newBtn,
         counts,
         h('span', { class: 'ytms-hint' }, 'Enter toggles the top match · Ctrl+Enter saves'),
         h('span', { class: 'ytms-spacer' }),
         summary,
-        h('button', { class: 'ytms-btn', type: 'button', onclick: () => close() }, 'Cancel'),
+        cancelBtn,
         saveBtn,
       ),
     );
@@ -529,6 +540,7 @@
     fetchPlaylists(videoId).then(
       (list) => {
         if (!root.isConnected) return;
+        message.classList.remove('is-loading');
         state.playlists = list;
         state.loaded = true;
         state.needCovers = list.some((p) => !p.thumb);
@@ -539,6 +551,7 @@
       },
       (err) => {
         if (!root.isConnected) return;
+        message.classList.remove('is-loading');
         message.textContent = `Couldn't load your playlists: ${err.message}`;
         message.classList.add('is-error');
       },
@@ -557,7 +570,7 @@
       p.el = h(
         'button',
         { class: 'ytms-tile', type: 'button', role: 'checkbox', title: p.title, onclick: () => toggle(p) },
-        h('span', { class: 'ytms-thumb' }, icon(ICONS.playlist), p.imgEl, h('span', { class: 'ytms-check' }, icon(ICONS.check))),
+        h('span', { class: 'ytms-thumb' }, icon(ICONS.playlist), p.imgEl, h('span', { class: 'ytms-check' }, icon(ICONS.check)), spinner()),
         h('span', { class: 'ytms-tile-text' }, h('span', { class: 'ytms-tile-title' }, p.title), p.metaEl),
       );
       updateTile(p);
@@ -614,11 +627,16 @@
       el.classList.toggle('is-on', on);
       el.classList.toggle('will-add', p.pending === 'add');
       el.classList.toggle('will-remove', p.pending === 'remove');
+      // While saving, each change is queued (waiting for its turn), busy (being sent) or done.
+      el.classList.toggle('is-queued', p.status === 'queued');
       el.classList.toggle('is-busy', p.status === 'busy');
+      el.classList.toggle('is-done', p.status === 'done');
       el.classList.toggle('is-error', p.status === 'error');
       el.disabled = state.busy;
       const meta =
-        p.status === 'busy' ? 'Saving…'
+        p.status === 'queued' ? 'Waiting…'
+        : p.status === 'busy' ? (p.pending === 'add' ? 'Adding…' : 'Removing…')
+        : p.status === 'done' ? (p.inPlaylist ? 'Added' : 'Removed')
         : p.status === 'error' ? `Failed: ${p.error}`
         : p.pending === 'add' ? 'Will be added'
         : p.pending === 'remove' ? 'Will be removed'
@@ -652,11 +670,23 @@
       const removed = state.playlists.filter((p) => p.pending === 'remove').length;
       const savedIn = state.playlists.filter((p) => p.inPlaylist).length;
       counts.textContent = state.loaded ? `${plural(state.playlists.length, 'playlist')} · saved in ${savedIn}` : '';
-      summary.textContent =
-        note ?? [added && `+${added} to add`, removed && `−${removed} to remove`].filter(Boolean).join(' · ');
-      summary.classList.toggle('is-error', Boolean(note));
+      if (state.busy) {
+        const { done, total } = state.progress;
+        summary.textContent = total > 1 ? `${done} of ${total} done` : '';
+        progressFill.style.width = `${(done / total) * 100}%`;
+        progress.setAttribute('aria-valuemax', String(total));
+        progress.setAttribute('aria-valuenow', String(done));
+      } else {
+        summary.textContent =
+          note ?? [added && `+${added} to add`, removed && `−${removed} to remove`].filter(Boolean).join(' · ');
+      }
+      summary.classList.toggle('is-error', Boolean(note) && !state.busy);
+      progress.hidden = !state.busy;
+      dialog.classList.toggle('is-busy', state.busy);
+      saveBtn.classList.toggle('is-busy', state.busy);
       saveBtn.disabled = state.busy || added + removed === 0;
-      saveBtn.textContent = state.busy ? 'Saving…' : 'Save';
+      saveLabel.textContent = state.busy ? 'Saving…' : 'Save';
+      cancelBtn.disabled = state.busy;
       newBtn.disabled = state.busy || !state.loaded;
     }
 
@@ -670,25 +700,33 @@
       if (!changes.length || state.busy) return;
       const added = changes.filter((p) => p.pending === 'add').length;
       state.busy = true;
-      for (const p of changes) p.status = 'busy';
+      state.progress = { done: 0, total: changes.length };
+      for (const p of changes) p.status = 'queued';
       refresh();
 
       await runPool(changes, 3, async (p) => {
         const add = p.pending === 'add';
+        p.status = 'busy';
+        updateTile(p);
         try {
           await editPlaylist(p, videoId, add);
           p.inPlaylist = add;
           p.pending = null;
-          p.status = null;
+          p.status = 'done';
         } catch (err) {
           p.status = 'error';
           p.error = err.message;
         }
+        state.progress.done++;
         updateTile(p);
+        updateFooter();
       });
 
-      state.busy = false;
       const failed = changes.filter((p) => p.status === 'error').length;
+      // Leave the finished state (full bar, every tile "Added" / "Removed") up for a moment.
+      if (!failed) await new Promise((resolve) => setTimeout(resolve, 400));
+      state.busy = false;
+      for (const p of changes) if (p.status === 'done') p.status = null;
       if (!failed) {
         close();
         toast(describeChanges(added, changes.length - added));
@@ -716,6 +754,8 @@
         return;
       }
       createGo.disabled = true;
+      createGo.classList.add('is-busy');
+      createLabel.textContent = 'Creating…';
       createError.hidden = true;
       try {
         const id = await createPlaylist(title, createPrivacy.value, videoId);
@@ -741,6 +781,8 @@
         createError.hidden = false;
       } finally {
         createGo.disabled = false;
+        createGo.classList.remove('is-busy');
+        createLabel.textContent = 'Create & save';
       }
     }
 
@@ -953,7 +995,8 @@ html.ytms-dark #${ROOT_ID} {
 #${ROOT_ID} .ytms-tile.will-add { border-color: var(--accent); }
 #${ROOT_ID} .ytms-tile.will-remove, #${ROOT_ID} .ytms-tile.is-error { border-color: var(--danger); }
 #${ROOT_ID} .ytms-tile.will-remove .ytms-tile-title { text-decoration: line-through; opacity: .7; }
-#${ROOT_ID} .ytms-tile.is-busy { opacity: .6; }
+#${ROOT_ID} .ytms-tile.is-queued { opacity: .6; }
+#${ROOT_ID} .ytms-dialog.is-busy .ytms-tile { cursor: progress; }
 #${ROOT_ID} .ytms-thumb {
   position: relative; display: flex; align-items: center; justify-content: center; flex: none;
   width: var(--thumb-w); height: var(--thumb-h); border-radius: 6px; overflow: hidden;
@@ -980,8 +1023,31 @@ html.ytms-dark #${ROOT_ID} {
   font-size: var(--title-size); line-height: 1.4; font-weight: 500; overflow-wrap: anywhere;
 }
 #${ROOT_ID} .ytms-tile-meta { font-size: var(--meta-size); line-height: 1.35; color: var(--muted); }
-#${ROOT_ID} .will-add .ytms-tile-meta { color: var(--accent); }
+#${ROOT_ID} .will-add .ytms-tile-meta, #${ROOT_ID} .is-done .ytms-tile-meta { color: var(--accent); }
 #${ROOT_ID} .will-remove .ytms-tile-meta, #${ROOT_ID} .is-error .ytms-tile-meta { color: var(--danger); }
+
+/* Working: spinners on the busy button and over the cover of each playlist being changed. */
+@keyframes ytms-spin { to { transform: rotate(360deg); } }
+#${ROOT_ID} .ytms-spinner, #${ROOT_ID} .ytms-message.is-loading::before {
+  display: block; flex: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: ytms-spin .75s linear infinite;
+}
+#${ROOT_ID} .ytms-message.is-loading::before { content: ''; width: 24px; height: 24px; margin: 0 auto 12px; border-width: 3px; color: var(--accent); }
+#${ROOT_ID} .ytms-btn .ytms-spinner { display: none; }
+#${ROOT_ID} .ytms-btn.is-busy .ytms-spinner { display: block; }
+#${ROOT_ID} .ytms-btn.is-busy:disabled { opacity: 1; cursor: progress; }
+#${ROOT_ID} .ytms-thumb .ytms-spinner { display: none; position: absolute; inset: 0; z-index: 1; margin: auto; width: 22px; height: 22px; border-width: 3px; color: #fff; }
+#${ROOT_ID} .ytms-tile.is-busy .ytms-thumb .ytms-spinner { display: block; }
+#${ROOT_ID} .ytms-tile.is-busy .ytms-thumb::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+#${ROOT_ID} .ytms-tile.is-busy .ytms-check { visibility: hidden; }
+#${ROOT_ID} .ytms-foot { position: relative; }
+#${ROOT_ID} .ytms-progress { position: absolute; top: -1px; left: 0; right: 0; height: 3px; background: var(--accent-bg); overflow: hidden; }
+#${ROOT_ID} .ytms-progress span { display: block; width: 0; height: 100%; background: var(--accent); transition: width .3s; }
+@media (prefers-reduced-motion: reduce) {
+  #${ROOT_ID} .ytms-spinner, #${ROOT_ID} .ytms-message.is-loading::before { animation-duration: 1.6s; }
+  #${ROOT_ID} .ytms-progress span { transition: none; }
+}
 
 /* Thumbnails switched off: plain checkbox in place of the cover. */
 #${ROOT_ID} .no-thumbs .ytms-tile { min-height: 0; align-items: flex-start; }
@@ -989,6 +1055,8 @@ html.ytms-dark #${ROOT_ID} {
 #${ROOT_ID} .no-thumbs .ytms-thumb > svg, #${ROOT_ID} .no-thumbs .ytms-thumb img { display: none; }
 #${ROOT_ID} .no-thumbs .ytms-check { --check: 20px; position: static; border-color: var(--muted); background: transparent; box-shadow: none; }
 #${ROOT_ID} .no-thumbs .is-on .ytms-check { border-color: var(--accent); background: var(--accent); }
+#${ROOT_ID} .no-thumbs .ytms-thumb .ytms-spinner { width: 18px; height: 18px; border-width: 2px; color: var(--accent); }
+#${ROOT_ID} .no-thumbs .ytms-tile.is-busy .ytms-thumb::after { display: none; }
 
 #${ROOT_ID} .ytms-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
 #${ROOT_ID} .ytms-counts, #${ROOT_ID} .ytms-hint { color: var(--muted); font-size: 13px; }
