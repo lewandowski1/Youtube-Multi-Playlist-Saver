@@ -79,6 +79,8 @@ Keep "YouTube" and "YT" out of the extension's name. YouTube's branding rules do
 
 Covers are cached in youtube.com's localStorage so they appear instantly next time, then refreshed in the background. With thumbnails switched off, they aren't fetched at all.
 
+Right after a save, YouTube can still report the old state for a while: the playlist already moves to the top of "Recently saved to", but without its tick. So each change is also kept in youtube.com's localStorage (`ytms:recent`) for 5 minutes and shown over what YouTube sends, until YouTube agrees (`withRecentChanges()`).
+
 The only permission is `storage` (for the settings). Nothing is sent anywhere except youtube.com.
 
 ## If it breaks

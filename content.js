@@ -66,6 +66,53 @@
   // Playlist id -> cover URL, so covers show instantly next time while fresh ones load.
   let thumbCache = new Map(Object.entries(readStore(THUMBS_KEY) || {}));
 
+  // ---------- changes YouTube may not show yet ----------
+  // Right after a save, YouTube's list can lag behind: the playlist already moves to the top of
+  // "Recently saved to", but for a while it's still reported without the video (or with it, after
+  // a removal). So each change made here is remembered for a few minutes, per video and playlist,
+  // and laid over what YouTube sends until YouTube agrees. Kept in youtube.com's localStorage, so
+  // a page reload in that time doesn't bring the stale state back either.
+  const RECENT_KEY = 'ytms:recent';
+  const RECENT_MS = 5 * 60 * 1000;
+
+  function recentChanges() {
+    const all = readStore(RECENT_KEY) || {};
+    for (const [key, change] of Object.entries(all)) if (!(Date.now() - change.at < RECENT_MS)) delete all[key];
+    return all;
+  }
+
+  function rememberChange(videoId, p, created = false) {
+    const all = recentChanges();
+    all[`${videoId} ${p.id}`] = { at: Date.now(), inPlaylist: p.inPlaylist, ...(created && { title: p.title, privacy: p.privacy }) };
+    writeStore(RECENT_KEY, all);
+  }
+
+  function withRecentChanges(videoId, list) {
+    const all = recentChanges();
+    const byId = new Map(list.map((p) => [p.id, p]));
+    for (const [key, change] of Object.entries(all)) {
+      const [video, id] = key.split(' ');
+      if (video !== videoId) continue;
+      const p = byId.get(id);
+      if (!p) {
+        // A playlist created here that YouTube doesn't list yet.
+        if (change.title) {
+          list.push({
+            id, title: change.title, privacy: change.privacy, inPlaylist: true,
+            thumb: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, pending: null, status: null,
+            index: Math.min(0, ...list.map((x) => x.index)) - 1,
+          });
+        }
+      } else if (p.inPlaylist === change.inPlaylist) {
+        delete all[key]; // YouTube has caught up
+      } else {
+        p.inPlaylist = change.inPlaylist;
+      }
+    }
+    writeStore(RECENT_KEY, all);
+    return list;
+  }
+
   // ---------- InnerTube ----------
 
   const cfg = (key) => window.ytcfg?.get?.(key) ?? window.ytcfg?.data_?.[key];
@@ -541,7 +588,7 @@
       (list) => {
         if (!root.isConnected) return;
         message.classList.remove('is-loading');
-        state.playlists = list;
+        state.playlists = withRecentChanges(videoId, list);
         state.loaded = true;
         state.needCovers = list.some((p) => !p.thumb);
         for (const p of list) makeTile(p);
@@ -713,6 +760,7 @@
           p.inPlaylist = add;
           p.pending = null;
           p.status = 'done';
+          rememberChange(videoId, p);
         } catch (err) {
           p.status = 'error';
           p.error = err.message;
@@ -770,6 +818,7 @@
           index: Math.min(0, ...state.playlists.map((x) => x.index)) - 1, // newest = most recent
         };
         state.playlists.push(p);
+        rememberChange(videoId, p, true);
         makeTile(p);
         layout();
         updateFooter();
