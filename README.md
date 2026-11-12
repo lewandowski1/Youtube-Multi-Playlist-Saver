@@ -66,6 +66,12 @@ The page is also linked from the hub site in `../extensions-site`, which copies 
 
 Keep "YouTube" and "YT" out of the extension's name. YouTube's branding rules don't allow its name or any abbreviation of it in an app's name, which is why this is Playlist Multi-Save. The description can still say it works with YouTube.
 
+## Firefox
+
+The same code runs in Firefox 140 and later. `make-zip.ps1` also writes `store/playlist-multi-save-firefox.zip` for addons.mozilla.org: the store zip with Firefox's settings added to `manifest.json` (its add-on ID `playlist-multi-save@nikma.xyz`, which must never change once published, the minimum version, and the statement that it collects no data) and Chrome's `minimum_chrome_version` left out. The scripts call the extension API through `browser` where it exists (Firefox) and `chrome` otherwise, so nothing else differs.
+
+To try it: in Firefox, open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on** and pick `manifest.json` inside the unzipped Firefox zip (Firefox removes temporary add-ons when it closes).
+
 ## How it works
 
 `content.js` calls the same internal endpoints YouTube's Save dialog uses, signed in as you:

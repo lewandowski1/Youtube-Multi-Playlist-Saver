@@ -1,3 +1,6 @@
+// The extension API: `browser` in Firefox, `chrome` in Chrome. Both return promises.
+const ext = globalThis.browser ?? globalThis.chrome;
+
 // The popup's two link buttons. While a link is null its button shows "Coming soon".
 const LINKS = {
   donate: 'https://ko-fi.com/nikma',
@@ -9,7 +12,7 @@ let settings = normalize(null);
 
 function save(patch) {
   settings = { ...settings, ...patch };
-  chrome.storage.sync.set({ [KEY]: settings }); // bridge.js forwards it to open YouTube tabs
+  ext.storage.sync.set({ [KEY]: settings }); // bridge.js forwards it to open YouTube tabs
 }
 
 function render() {
@@ -55,10 +58,10 @@ for (const [id, url] of Object.entries(LINKS)) {
   link.append(badge);
 }
 
-document.getElementById('version').textContent = chrome.runtime.getManifest().version;
+document.getElementById('version').textContent = ext.runtime.getManifest().version;
 
 render();
-chrome.storage.sync.get(KEY).then((stored) => {
+ext.storage.sync.get(KEY).then((stored) => {
   settings = normalize(stored[KEY]);
   render();
 });
